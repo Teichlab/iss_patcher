@@ -56,7 +56,8 @@ def knn(iss, gex, gex_only,
     #and this will throw the dimensions off when doing matrix operations shortly
     pbs = scipy.sparse.csr_matrix((data, indices, indptr), shape=[iss.shape[0], gex.shape[0]])
     #get the annotations and fractions of the specified obs columns in the KNN
-    pbs_obs = pd.DataFrame(index=iss.obs_names)
+    #start the obs pool with what already resides in the ISS object
+    pbs_obs = iss.obs.copy()
     if obs_to_take is not None:
         #just in case a single is passed as a string
         if type(obs_to_take) is not list:
