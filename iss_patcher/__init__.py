@@ -20,7 +20,8 @@ def knn(iss, gex, gex_only,
         obs_to_take=None, 
         round_counts=True, 
         computation="annoy", 
-        neighbours=15
+        neighbours=15,
+        obsm_fraction=False
        ):
     #identify the KNN, preparing a (distances, indices) tuple
     if computation == "annoy":
@@ -58,6 +59,9 @@ def knn(iss, gex, gex_only,
     #get the annotations and fractions of the specified obs columns in the KNN
     #start the obs pool with what already resides in the ISS object
     pbs_obs = iss.obs.copy()
+    #possibly store all computed fractions too, will live in obsm later
+    if obsm_fraction:
+        pbs_obsm = {}
     if obs_to_take is not None:
         #just in case a single is passed as a string
         if type(obs_to_take) is not list:
@@ -77,6 +81,9 @@ def knn(iss, gex, gex_only,
             )
             pbs_obs[anno_col] = anno_frac.idxmax(1)
             pbs_obs[anno_col + "_fraction"] = anno_frac.max(1)
+            #possibly stash full thing for obsm insertion later
+            if obsm_fraction:
+                pbs_obsm[anno_col] = anno_frac.copy()
     #the expression is a mean rather than a sum, make the data to add up to one per row
     pbs.data = (pbs.data / neighbours)
     X = pbs.dot(gex_only.X)
@@ -86,6 +93,14 @@ def knn(iss, gex, gex_only,
         X.eliminate_zeros()
     #now we can build the object easily
     out = anndata.AnnData(X, var=gex_only.var, obs=pbs_obs)
+    #shove in the fractions from earlier if we need to
+    if obsm_fraction:
+        #need to store the column names separately
+        #adata doesn't like data frames in .obsm
+        out.uns['obsm_fraction_colnames'] = {}
+        for anno_col in pbs_obsm:
+            out.obsm[anno_col+"_fraction"] = pbs_obsm[anno_col].values
+            out.uns['obsm_fraction_colnames'][anno_col] = list(pbs_obsm[anno_col].columns)
     return out
 
 def patch(iss, gex, 
@@ -93,7 +108,8 @@ def patch(iss, gex,
           obs_to_take=None, 
           round_counts=True, 
           computation="annoy", 
-          neighbours=15
+          neighbours=15,
+          obsm_fraction=False
          ):
     """
     Identify the nearest neighbours of low dimensionality observations 
@@ -124,6 +140,10 @@ def patch(iss, gex,
         identifies exact neighbours and is a bit slower.
     neighbours : ``int``, optional (default: 15)
         How many neighbours in ``gex`` to identify for each ``iss`` cell.
+    obsm_fraction : ``bool``, optional (default: ``False``)
+        If ``True``, will report the fraction of each ``obs_to_take`` in 
+        ``.obsm`` of the resulting object. Corresponding column names in 
+        ``.uns['obsm_fraction_colnames']``.
     """
     #copy the objects to avoid modifying the originals
     iss = iss.copy()
@@ -145,5 +165,6 @@ def patch(iss, gex,
                obs_to_take=obs_to_take,
                round_counts=round_counts,
                computation=computation,
-               neighbours=neighbours
+               neighbours=neighbours,
+               obsm_fraction=obsm_fraction
               )
