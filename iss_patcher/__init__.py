@@ -95,12 +95,8 @@ def knn(iss, gex, gex_only,
     out = anndata.AnnData(X, var=gex_only.var, obs=pbs_obs)
     #shove in the fractions from earlier if we need to
     if obsm_fraction:
-        #need to store the column names separately
-        #adata doesn't like data frames in .obsm
-        out.uns['obsm_fraction_colnames'] = {}
         for anno_col in pbs_obsm:
-            out.obsm[anno_col+"_fraction"] = pbs_obsm[anno_col].values
-            out.uns['obsm_fraction_colnames'][anno_col] = list(pbs_obsm[anno_col].columns)
+            out.obsm[anno_col+"_fraction"] = pbs_obsm[anno_col]
     return out
 
 def patch(iss, gex, 
@@ -141,9 +137,8 @@ def patch(iss, gex,
     neighbours : ``int``, optional (default: 15)
         How many neighbours in ``gex`` to identify for each ``iss`` cell.
     obsm_fraction : ``bool``, optional (default: ``False``)
-        If ``True``, will report the fraction of each ``obs_to_take`` in 
-        ``.obsm`` of the resulting object. Corresponding column names in 
-        ``.uns['obsm_fraction_colnames']``.
+        If ``True``, will report the full fraction distribution of each 
+        ``obs_to_take`` in ``.obsm`` of the resulting object.
     """
     #copy the objects to avoid modifying the originals
     iss = iss.copy()
