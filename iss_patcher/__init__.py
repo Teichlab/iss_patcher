@@ -19,8 +19,9 @@ def prepare_scaled(adata, min_genes=3):
 def knn(iss, gex, gex_only, 
         obs_to_take=None, 
         round_counts=True, 
-        computation="annoy", 
-        neighbours=15,
+        chunk_size=100000, 
+        computation="annoy",  
+        neighbours=15, 
         obsm_fraction=False
        ):
     #identify the KNN, preparing a (distances, indices) tuple
@@ -86,11 +87,28 @@ def knn(iss, gex, gex_only,
                 pbs_obsm[anno_col] = anno_frac.copy()
     #the expression is a mean rather than a sum, make the data to add up to one per row
     pbs.data = (pbs.data / neighbours)
-    X = pbs.dot(gex_only.X)
-    #round the data to nearest integer if instructed
+    #if we're rounding the data, compute it in chunks to reduce RAM footprint
     if round_counts:
-        X.data = np.round(X.data)
-        X.eliminate_zeros()
+        #we'll be vstacking to this shortly
+        X = None
+        #process chunk_size iss cells at a time
+        for start_pos in np.arange(0, pbs.shape[0], chunk_size):
+            #these are our pseudobulk definitions for this chunk
+            pbs_sub = pbs[start_pos:(start_pos+chunk_size),:]
+            #get the corresponding expression for the chunk
+            X_sub = pbs_sub.dot(gex_only.X)
+            #round the data to nearest integer
+            X_sub.data = np.round(X_sub.data)
+            X_sub.eliminate_zeros()
+            #store the rounded data in a master matrix
+            if X is None:
+                X = X_sub.copy()
+            else:
+                X = scipy.sparse.vstack([X,X_sub])
+    else:
+        #no rounding, so no RAM footprint to be saved
+        #just do it all at once
+        X = pbs.dot(gex_only.X)
     #now we can build the object easily
     out = anndata.AnnData(X, var=gex_only.var, obs=pbs_obs)
     #shove in the fractions from earlier if we need to
@@ -103,8 +121,9 @@ def patch(iss, gex,
           min_genes=3, 
           obs_to_take=None, 
           round_counts=True, 
+          chunk_size=100000, 
           computation="annoy", 
-          neighbours=15,
+          neighbours=15, 
           obsm_fraction=False
          ):
     """
@@ -129,6 +148,11 @@ def patch(iss, gex,
     round_counts : ``bool``, optional (default: ``True``)
         If ``True``, will round the computed counts to the nearest 
         integer.
+    chunk_size : ``int``, optional (default: 100000)
+        If ``round_counts`` is ``True``, will compute ``iss`` profiles 
+        these many observations at a time and round them to reduce RAM 
+        use. A larger value means fewer matrix operations (i.e. quicker 
+        run time) at the cost of more memory.
     computation : ``str``, optional (default: ``"annoy"``)
         The package supports KNN inference via annoy (specify 
         ``"annoy"``) and scipy's cKDTree (specify ``"cKDTree"). Annoy 
@@ -157,9 +181,10 @@ def patch(iss, gex,
     return knn(iss=iss, 
                gex=gex, 
                gex_only=gex_only, 
-               obs_to_take=obs_to_take,
-               round_counts=round_counts,
-               computation=computation,
-               neighbours=neighbours,
+               obs_to_take=obs_to_take, 
+               round_counts=round_counts, 
+               chunk_size=chunk_size, 
+               computation=computation, 
+               neighbours=neighbours, 
                obsm_fraction=obsm_fraction
               )
