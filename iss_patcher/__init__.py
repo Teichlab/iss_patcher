@@ -7,6 +7,7 @@ import anndata
 import pandas as pd
 import scanpy as sc
 import annoy
+import pynndescent
 import numpy as np
 
 def prepare_scaled(adata, min_genes=3):
@@ -39,13 +40,21 @@ def knn(iss, gex, gex_only,
             ckdo_ind.append(holder[0])
             ckdo_dist.append(holder[1])
         ckdout = (np.asarray(ckdo_dist),np.asarray(ckdo_ind))
+    elif computation == "pynndescent":
+        #build the GEX index
+        ckd = pynndescent.NNDescent(gex.X, metric="euclidean", n_jobs=-1, random_state=0)
+        ckd.prepare()
+        #query the GEX index with the ISS data
+        ckdout = ckd.query(iss.X, k=neighbours)
+        #need to reverse this to match conventions
+        ckdout = (ckdout[1], ckdout[0])
     elif computation == "cKDTree":
         #build the GEX index
         ckd = scipy.spatial.cKDTree(gex.X)
         #query the GEX index with the ISS data
         ckdout = ckd.query(x=iss.X, k=neighbours, workers=-1)
     else:
-        raise ValueError("Invalid computation, must be 'annoy' or 'cKDTree'")
+        raise ValueError("Invalid computation, must be 'annoy', 'pynndescent' or 'cKDTree'")
     #turn KNN output into a scanpy-like graph
     #the indices need to be flattened, the default row-major style works
     indices = ckdout[1].flatten()
@@ -155,7 +164,8 @@ def patch(iss, gex,
         run time) at the cost of more memory.
     computation : ``str``, optional (default: ``"annoy"``)
         The package supports KNN inference via annoy (specify 
-        ``"annoy"``) and scipy's cKDTree (specify ``"cKDTree"). Annoy 
+        ``"annoy"``), PyNNDescent (specify ``"pynndescent"``) and scipy's 
+        cKDTree (specify ``"cKDTree"``). Annoy 
         identifies approximate neighbours and runs quicker, cKDTree 
         identifies exact neighbours and is a bit slower.
     neighbours : ``int``, optional (default: 15)
