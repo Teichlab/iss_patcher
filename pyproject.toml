@@ -14,7 +14,8 @@ dependencies = [
     "pandas",
     "anndata",
     "scanpy",
-    "annoy"
+    "annoy",
+    "pynndescent"
 ]
 requires-python = ">=3.7"
 
