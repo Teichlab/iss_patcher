@@ -17,15 +17,10 @@ def prepare_scaled(adata, min_genes=3):
     sc.pp.log1p(adata)
     sc.pp.scale(adata, max_value=10)
 
-def knn(iss, gex, gex_only, 
-        obs_to_take=None, 
-        round_counts=True, 
-        chunk_size=100000, 
-        computation="annoy",  
-        neighbours=15, 
-        obsm_fraction=False
-       ):
-    #identify the KNN, preparing a (distances, indices) tuple
+def get_knn_indices(iss, gex,
+                    computation="annoy",
+                    neighbours=15
+                   ):
     if computation == "annoy":
         #build the GEX index
         ckd = annoy.AnnoyIndex(gex.X.shape[1], metric="euclidean")
@@ -55,18 +50,27 @@ def knn(iss, gex, gex_only,
         ckdout = ckd.query(x=iss.X, k=neighbours, workers=-1)
     else:
         raise ValueError("Invalid computation, must be 'annoy', 'pynndescent' or 'cKDTree'")
-    #turn KNN output into a scanpy-like graph
+    return ckdout
+
+def ckdout_to_sparse(ckdout, shape,
+                     neighbours=15
+                    ):
     #the indices need to be flattened, the default row-major style works
     indices = ckdout[1].flatten()
     #the indptr is once every neighbours, but needs an extra entry at the end
-    indptr = neighbours * np.arange(iss.shape[0]+1)
+    indptr = neighbours * np.arange(shape[0]+1)
     #the data is ones. for now. use float32 as that's what scanpy likes as default
-    data = np.ones(iss.shape[0]*neighbours, dtype=np.float32)
+    data = np.ones(shape[0]*neighbours, dtype=np.float32)
     #construct the KNN graph!
     #need to specify the shape as there may be cells at the end that don't get picked up
     #and this will throw the dimensions off when doing matrix operations shortly
-    pbs = scipy.sparse.csr_matrix((data, indices, indptr), shape=[iss.shape[0], gex.shape[0]])
-    #get the annotations and fractions of the specified obs columns in the KNN
+    pbs = scipy.sparse.csr_matrix((data, indices, indptr), shape=shape)
+    return pbs
+
+def get_pbs_obs(iss, gex, pbs,
+                obs_to_take=None,
+                obsm_fraction=False
+               ):
     #start the obs pool with what already resides in the ISS object
     pbs_obs = iss.obs.copy()
     #possibly store all computed fractions too, will live in obsm later
@@ -94,6 +98,18 @@ def knn(iss, gex, gex_only,
             #possibly stash full thing for obsm insertion later
             if obsm_fraction:
                 pbs_obsm[anno_col] = anno_frac.copy()
+    if obsm_fraction:
+        return pbs_obs, pbs_obsm
+    else:
+        return pbs_obs
+
+def get_pbs_X(gex_only, pbs,
+              round_counts=True,
+              chunk_size=100000,
+              neighbours=15
+             ):
+    #make a copy to not modify the original pbs
+    pbs = pbs.copy()
     #the expression is a mean rather than a sum, make the data to add up to one per row
     pbs.data = (pbs.data / neighbours)
     #if we're rounding the data, compute it in chunks to reduce RAM footprint
@@ -118,12 +134,59 @@ def knn(iss, gex, gex_only,
         #no rounding, so no RAM footprint to be saved
         #just do it all at once
         X = pbs.dot(gex_only.X)
+    return X
+
+def knn(iss, gex, gex_only, 
+        obs_to_take=None, 
+        round_counts=True, 
+        chunk_size=100000, 
+        computation="annoy",  
+        neighbours=15, 
+        obsm_fraction=False,
+        obsm_pbs=False
+       ):
+    #identify the KNN, preparing a (distances, indices) tuple
+    ckdout = get_knn_indices(iss=iss,
+                             gex=gex,
+                             computation=computation,
+                             neighbours=neighbours
+                            )
+    #turn KNN output into a scanpy-like graph
+    pbs = ckdout_to_sparse(ckdout=ckdout,
+                           shape=[iss.shape[0], gex.shape[0]],
+                           neighbours=neighbours
+                          )
+    #get the annotations and fractions of the specified obs columns in the KNN
+    if obsm_fraction:
+        pbs_obs, pbs_obsm = get_pbs_obs(iss=iss,
+                                        gex=gex,
+                                        pbs=pbs,
+                                        obs_to_take=obs_to_take,
+                                        obsm_fraction=obsm_fraction
+                                       )
+    else:
+        pbs_obs = get_pbs_obs(iss=iss,
+                              gex=gex,
+                              pbs=pbs,
+                              obs_to_take=obs_to_take,
+                              obsm_fraction=obsm_fraction
+                             )
+    #get the expression matrix
+    X = get_pbs_X(gex_only=gex_only,
+                  pbs=pbs,
+                  round_counts=round_counts,
+                  chunk_size=chunk_size,
+                  neighbours=neighbours
+                 )
     #now we can build the object easily
     out = anndata.AnnData(X, var=gex_only.var, obs=pbs_obs)
     #shove in the fractions from earlier if we need to
     if obsm_fraction:
         for anno_col in pbs_obsm:
             out.obsm[anno_col+"_fraction"] = pbs_obsm[anno_col]
+    #shove in the pbs (KNN) if we need to
+    if obsm_pbs:
+        out.obsm['pbs'] = pbs
     return out
 
 def patch(iss, gex, 
@@ -133,7 +196,8 @@ def patch(iss, gex,
           chunk_size=100000, 
           computation="annoy", 
           neighbours=15, 
-          obsm_fraction=False
+          obsm_fraction=False,
+          obsm_pbs=False
          ):
     """
     Identify the nearest neighbours of low dimensionality observations 
@@ -173,6 +237,9 @@ def patch(iss, gex,
     obsm_fraction : ``bool``, optional (default: ``False``)
         If ``True``, will report the full fraction distribution of each 
         ``obs_to_take`` in ``.obsm`` of the resulting object.
+    obsm_pbs : ``bool``, optional (default: ``False``)
+        If ``True``, will store the identified ``gex`` neighbours for 
+        each ``iss`` cell in ``.obsm['pbs']``.
     """
     #copy the objects to avoid modifying the originals
     iss = iss.copy()
@@ -196,5 +263,6 @@ def patch(iss, gex,
                chunk_size=chunk_size, 
                computation=computation, 
                neighbours=neighbours, 
-               obsm_fraction=obsm_fraction
+               obsm_fraction=obsm_fraction,
+               obsm_pbs=obsm_pbs
               )
