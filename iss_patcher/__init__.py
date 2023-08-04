@@ -321,7 +321,9 @@ def patch_twostep(iss, gex, annot_key,
     finding each ISS cell's KNN only among the ``gex`` cells matching in 
     annotation. Prior to execution, ``gex`` cells annotated with 
     categories with fewer than ``neighbours`` total representatives are 
-    removed.
+    removed. ``annot_key``-derived entries in the output object are 
+    derived from the first-pass KNN on the full space, all other 
+    transferred ``gex.obs`` are based on the second pass subset KNNs.
     
     All undescribed arguments as in ``ip.patch()``.
     
