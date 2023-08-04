@@ -10,15 +10,35 @@ import annoy
 import pynndescent
 import numpy as np
 
-def prepare_scaled(adata, min_genes=3):
+def prepare_scaled(adata, 
+                   min_genes=3
+                  ):
     sc.pp.filter_cells(adata, min_genes=min_genes)
     #normalise to median
     sc.pp.normalize_total(adata)
     sc.pp.log1p(adata)
     sc.pp.scale(adata, max_value=10)
 
-def get_knn_indices(iss, gex,
-                    computation="annoy",
+def split_and_normalise_objects(iss, gex, 
+                                min_genes=3
+                               ):
+    #copy the objects to avoid modifying the originals
+    iss = iss.copy()
+    gex = gex.copy()
+    #subset the ISS to genes that appear in the GEX
+    iss = iss[:, [i in gex.var_names for i in iss.var_names]]
+    #separate GEX into shared gene space and not shared gene space
+    gex_only = gex[:, [i not in iss.var_names for i in gex.var_names]]
+    gex = gex[:, iss.var_names]
+    #turn both objects for KNNing into a log-normalised, z-scored form
+    prepare_scaled(iss, min_genes=min_genes)
+    prepare_scaled(gex, min_genes=min_genes)
+    #this might remove some cells from the GEX, mirror in the gex_only
+    gex_only = gex_only[gex.obs_names]
+    return iss, gex, gex_only
+
+def get_knn_indices(iss, gex, 
+                    computation="annoy", 
                     neighbours=15
                    ):
     if computation == "annoy":
@@ -52,7 +72,7 @@ def get_knn_indices(iss, gex,
         raise ValueError("Invalid computation, must be 'annoy', 'pynndescent' or 'cKDTree'")
     return ckdout
 
-def ckdout_to_sparse(ckdout, shape,
+def ckdout_to_sparse(ckdout, shape, 
                      neighbours=15
                     ):
     #the indices need to be flattened, the default row-major style works
@@ -65,10 +85,15 @@ def ckdout_to_sparse(ckdout, shape,
     #need to specify the shape as there may be cells at the end that don't get picked up
     #and this will throw the dimensions off when doing matrix operations shortly
     pbs = scipy.sparse.csr_matrix((data, indices, indptr), shape=shape)
-    return pbs
+    #make a second version for means of stuff - divide data by neighbour count
+    #this way each row adds up to 1 and this can be used for mean matrix operations
+    pbs_means = pbs.copy()
+    pbs_means.data = pbs_means.data/neighbours
+    return pbs, pbs_means
 
-def get_pbs_obs(iss, gex, pbs,
-                obs_to_take=None,
+def get_pbs_obs(iss, gex, pbs, pbs_means, 
+                obs_to_take=None, 
+                cont_obs_to_take=None, 
                 obsm_fraction=False
                ):
     #start the obs pool with what already resides in the ISS object
@@ -98,30 +123,38 @@ def get_pbs_obs(iss, gex, pbs,
             #possibly stash full thing for obsm insertion later
             if obsm_fraction:
                 pbs_obsm[anno_col] = anno_frac.copy()
+    if cont_obs_to_take is not None:
+        #just in case a single is passed as a string
+        if type(cont_obs_to_take) is not list:
+            cont_obs_to_take = [cont_obs_to_take]
+        #compute the averages and turn them to a data frame
+        cont_obs = pbs_means.dot(gex.obs[cont_obs_to_take].values)
+        cont_obs = pd.DataFrame(
+            cont_obs,
+            index=iss.obs_names,
+            columns=cont_obs_to_take
+        )
+        for col in cont_obs_to_take:
+            pbs_obs[col] = cont_obs[col]
     if obsm_fraction:
         return pbs_obs, pbs_obsm
     else:
         return pbs_obs
 
-def get_pbs_X(gex_only, pbs,
-              round_counts=True,
-              chunk_size=100000,
-              neighbours=15
+def get_pbs_X(gex_only, pbs_means, 
+              round_counts=True, 
+              chunk_size=100000
              ):
-    #make a copy to not modify the original pbs
-    pbs = pbs.copy()
-    #the expression is a mean rather than a sum, make the data to add up to one per row
-    pbs.data = (pbs.data / neighbours)
     #if we're rounding the data, compute it in chunks to reduce RAM footprint
     if round_counts:
         #we'll be vstacking to this shortly
         X = None
         #process chunk_size iss cells at a time
-        for start_pos in np.arange(0, pbs.shape[0], chunk_size):
+        for start_pos in np.arange(0, pbs_means.shape[0], chunk_size):
             #these are our pseudobulk definitions for this chunk
-            pbs_sub = pbs[start_pos:(start_pos+chunk_size),:]
+            pbs_means_sub = pbs_means[start_pos:(start_pos+chunk_size),:]
             #get the corresponding expression for the chunk
-            X_sub = pbs_sub.dot(gex_only.X)
+            X_sub = pbs_means_sub.dot(gex_only.X)
             #round the data to nearest integer
             X_sub.data = np.round(X_sub.data)
             X_sub.eliminate_zeros()
@@ -133,50 +166,50 @@ def get_pbs_X(gex_only, pbs,
     else:
         #no rounding, so no RAM footprint to be saved
         #just do it all at once
-        X = pbs.dot(gex_only.X)
+        X = pbs_means.dot(gex_only.X)
     return X
 
 def knn(iss, gex, gex_only, 
         obs_to_take=None, 
+        cont_obs_to_take=None, 
         round_counts=True, 
         chunk_size=100000, 
-        computation="annoy",  
+        computation="annoy", 
         neighbours=15, 
-        obsm_fraction=False,
+        obsm_fraction=False, 
         obsm_pbs=False
        ):
     #identify the KNN, preparing a (distances, indices) tuple
-    ckdout = get_knn_indices(iss=iss,
-                             gex=gex,
-                             computation=computation,
+    ckdout = get_knn_indices(iss=iss, 
+                             gex=gex, 
+                             computation=computation, 
                              neighbours=neighbours
                             )
     #turn KNN output into a scanpy-like graph
-    pbs = ckdout_to_sparse(ckdout=ckdout,
-                           shape=[iss.shape[0], gex.shape[0]],
-                           neighbours=neighbours
-                          )
-    #get the annotations and fractions of the specified obs columns in the KNN
+    #yields a version with both ones as data and ones as row sums
+    #the latter is useful for matrix operation computation of means
+    pbs, pbs_means = ckdout_to_sparse(ckdout=ckdout, 
+                                      shape=[iss.shape[0], gex.shape[0]], 
+                                      neighbours=neighbours
+                                     )
+    #get the annotations of the specified obs columns in the KNN
+    pbs_obs = get_pbs_obs(iss=iss, 
+                          gex=gex, 
+                          pbs=pbs, 
+                          pbs_means=pbs_means, 
+                          obs_to_take=obs_to_take, 
+                          cont_obs_to_take=cont_obs_to_take, 
+                          obsm_fraction=obsm_fraction
+                         )
+    #if fractions are to be stored, this has two elements
     if obsm_fraction:
-        pbs_obs, pbs_obsm = get_pbs_obs(iss=iss,
-                                        gex=gex,
-                                        pbs=pbs,
-                                        obs_to_take=obs_to_take,
-                                        obsm_fraction=obsm_fraction
-                                       )
-    else:
-        pbs_obs = get_pbs_obs(iss=iss,
-                              gex=gex,
-                              pbs=pbs,
-                              obs_to_take=obs_to_take,
-                              obsm_fraction=obsm_fraction
-                             )
+        pbs_obsm = pbs_obs[1]
+        pbs_obs = pbs_obs[0]
     #get the expression matrix
-    X = get_pbs_X(gex_only=gex_only,
-                  pbs=pbs,
-                  round_counts=round_counts,
-                  chunk_size=chunk_size,
-                  neighbours=neighbours
+    X = get_pbs_X(gex_only=gex_only, 
+                  pbs_means=pbs_means, 
+                  round_counts=round_counts, 
+                  chunk_size=chunk_size
                  )
     #now we can build the object easily
     out = anndata.AnnData(X, var=gex_only.var, obs=pbs_obs)
@@ -185,18 +218,21 @@ def knn(iss, gex, gex_only,
         for anno_col in pbs_obsm:
             out.obsm[anno_col+"_fraction"] = pbs_obsm[anno_col]
     #shove in the pbs (KNN) if we need to
+    #also stash gex obs names as there might have been filtering
     if obsm_pbs:
         out.obsm['pbs'] = pbs
+        out.uns['pbs_gex_obs_names'] = list(gex.obs_names)
     return out
 
 def patch(iss, gex, 
           min_genes=3, 
           obs_to_take=None, 
+          cont_obs_to_take=None, 
           round_counts=True, 
           chunk_size=100000, 
           computation="annoy", 
           neighbours=15, 
-          obsm_fraction=False,
+          obsm_fraction=False, 
           obsm_pbs=False
          ):
     """
@@ -217,7 +253,12 @@ def patch(iss, gex,
         space of ``iss`` and ``gex``.
     obs_to_take : ``str`` or list of ``str``, optional (default: ``None``)
         If provided, will report the most common value of the specified 
-        ``gex.obs`` column(s) for the neighbours of each ``iss`` cell.
+        ``gex.obs`` column(s) for the neighbours of each ``iss`` cell. 
+        Discrete metadata only.
+    cont_obs_to_take : ``str`` or list of ``str``, optional (default: ``None``)
+        If provided, will report the average of the values of the 
+        specified ``gex.obs`` column(s) for the neighbours of each 
+        ``iss`` cell. Continuous metadata only.
     round_counts : ``bool``, optional (default: ``True``)
         If ``True``, will round the computed counts to the nearest 
         integer.
@@ -239,30 +280,26 @@ def patch(iss, gex,
         ``obs_to_take`` in ``.obsm`` of the resulting object.
     obsm_pbs : ``bool``, optional (default: ``False``)
         If ``True``, will store the identified ``gex`` neighbours for 
-        each ``iss`` cell in ``.obsm['pbs']``.
+        each ``iss`` cell in ``.obsm['pbs']``. A corresponding vector of 
+        ``gex.obs_names`` will be stored in ``.uns['pbs_gex_obs_names']``.
     """
-    #copy the objects to avoid modifying the originals
-    iss = iss.copy()
-    gex = gex.copy()
-    #subset the ISS to genes that appear in the GEX
-    iss = iss[:, [i in gex.var_names for i in iss.var_names]]
-    #separate GEX into shared gene space and not shared gene space
-    gex_only = gex[:, [i not in iss.var_names for i in gex.var_names]]
-    gex = gex[:, iss.var_names]
-    #turn both objects for KNNing into a log-normalised, z-scored form
-    prepare_scaled(iss, min_genes=min_genes)
-    prepare_scaled(gex, min_genes=min_genes)
-    #this might remove some cells from the GEX, mirror in the gex_only
-    gex_only = gex_only[gex.obs_names]
+    #split up the GEX into ISS features and unique features
+    #perform a quick normalisation of the ISS feature space objects
+    #keep the GEX only features as raw counts
+    iss, gex, gex_only = split_and_normalise_objects(iss=iss, 
+                                                     gex=gex, 
+                                                     min_genes=min_genes
+                                                    )
     #identify the KNN and use it to approximate expression
     return knn(iss=iss, 
                gex=gex, 
                gex_only=gex_only, 
                obs_to_take=obs_to_take, 
+               cont_obs_to_take=cont_obs_to_take, 
                round_counts=round_counts, 
                chunk_size=chunk_size, 
                computation=computation, 
                neighbours=neighbours, 
-               obsm_fraction=obsm_fraction,
+               obsm_fraction=obsm_fraction, 
                obsm_pbs=obsm_pbs
               )
