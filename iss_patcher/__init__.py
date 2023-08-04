@@ -37,37 +37,37 @@ def split_and_normalise_objects(iss, gex,
     gex_only = gex_only[gex.obs_names]
     return iss, gex, gex_only
 
-def get_knn_indices(iss, gex, 
+def get_knn_indices(issX, gexX, 
                     computation="annoy", 
                     neighbours=15
                    ):
     if computation == "annoy":
         #build the GEX index
-        ckd = annoy.AnnoyIndex(gex.X.shape[1], metric="euclidean")
-        for i in np.arange(gex.X.shape[0]):
-            ckd.add_item(i,gex.X[i,:])
+        ckd = annoy.AnnoyIndex(gexX.shape[1], metric="euclidean")
+        for i in np.arange(gexX.shape[0]):
+            ckd.add_item(i,gexX[i,:])
         ckd.build(10)
         #query the GEX index with the ISS data
         ckdo_ind = []
         ckdo_dist = []
-        for i in np.arange(iss.X.shape[0]):
-            holder = ckd.get_nns_by_vector(iss.X[i,:], neighbours, include_distances=True)
+        for i in np.arange(issX.shape[0]):
+            holder = ckd.get_nns_by_vector(issX[i,:], neighbours, include_distances=True)
             ckdo_ind.append(holder[0])
             ckdo_dist.append(holder[1])
         ckdout = (np.asarray(ckdo_dist),np.asarray(ckdo_ind))
     elif computation == "pynndescent":
         #build the GEX index
-        ckd = pynndescent.NNDescent(gex.X, metric="euclidean", n_jobs=-1, random_state=0)
+        ckd = pynndescent.NNDescent(gexX, metric="euclidean", n_jobs=-1, random_state=0)
         ckd.prepare()
         #query the GEX index with the ISS data
-        ckdout = ckd.query(iss.X, k=neighbours)
+        ckdout = ckd.query(issX, k=neighbours)
         #need to reverse this to match conventions
         ckdout = (ckdout[1], ckdout[0])
     elif computation == "cKDTree":
         #build the GEX index
-        ckd = scipy.spatial.cKDTree(gex.X)
+        ckd = scipy.spatial.cKDTree(gexX)
         #query the GEX index with the ISS data
-        ckdout = ckd.query(x=iss.X, k=neighbours, workers=-1)
+        ckdout = ckd.query(x=issX, k=neighbours, workers=-1)
     else:
         raise ValueError("Invalid computation, must be 'annoy', 'pynndescent' or 'cKDTree'")
     return ckdout
@@ -180,8 +180,8 @@ def knn(iss, gex, gex_only,
         obsm_pbs=False
        ):
     #identify the KNN, preparing a (distances, indices) tuple
-    ckdout = get_knn_indices(iss=iss, 
-                             gex=gex, 
+    ckdout = get_knn_indices(issX=iss.X, 
+                             gexX=gex.X, 
                              computation=computation, 
                              neighbours=neighbours
                             )
@@ -221,7 +221,7 @@ def knn(iss, gex, gex_only,
     #also stash gex obs names as there might have been filtering
     if obsm_pbs:
         out.obsm['pbs'] = pbs
-        out.uns['pbs_gex_obs_names'] = list(gex.obs_names)
+        out.uns['pbs_gex_obs_names'] = np.array(gex.obs_names)
     return out
 
 def patch(iss, gex, 
@@ -303,3 +303,144 @@ def patch(iss, gex,
                obsm_fraction=obsm_fraction, 
                obsm_pbs=obsm_pbs
               )
+
+def patch_twostep(iss, gex, annot_key,  
+                  min_genes=3, 
+                  obs_to_take=None, 
+                  cont_obs_to_take=None, 
+                  round_counts=True, 
+                  chunk_size=100000, 
+                  computation="annoy", 
+                  neighbours=15, 
+                  obsm_fraction=False, 
+                  obsm_pbs=False
+                 ):
+    """
+    A two-step version of the procedure, identifying each ``iss`` cell's 
+    KNN in the shared GEX feature space in the first go, and then 
+    finding each ISS cell's KNN only among the ``gex`` cells matching in 
+    annotation. Prior to execution, ``gex`` cells annotated with 
+    categories with fewer than ``neighbours`` total representatives are 
+    removed.
+    
+    All undescribed arguments as in ``ip.patch()``.
+    
+    Input
+    -----
+    annot_key : ``str``
+        ``gex.obs`` key to use as the annotation.
+    obsm_fraction : ``bool``, optional (default: ``False``)
+        If ``True``, will additionally store the ``annot_key`` 
+        cell fractions from the first pass KNN.
+    obsm_pbs : ``bool``, optional (default: ``False``)
+        If ``True``, will additionally store the first pass 
+        annotation determining KNN in ``.obsm['pbs_annot']``.
+    """
+    #remove cells from GEX that are from rare annotations
+    annot_count = gex.obs[annot_key].value_counts()
+    annot_keep = list(annot_count[annot_count>=neighbours].index)
+    gex = gex[np.isin(gex.obs[annot_key], annot_keep)]
+    #split up the GEX into ISS features and unique features
+    #perform a quick normalisation of the ISS feature space objects
+    #keep the GEX only features as raw counts
+    iss, gex, gex_only = split_and_normalise_objects(iss=iss, 
+                                                     gex=gex, 
+                                                     min_genes=min_genes
+                                                    )
+    #FIRST PASS - identify majority vote annotation for each iss cell
+    #identify the KNN, preparing a (distances, indices) tuple
+    ckdout = get_knn_indices(issX=iss.X, 
+                             gexX=gex.X, 
+                             computation=computation, 
+                             neighbours=neighbours
+                            )
+    #turn KNN output into a scanpy-like graph
+    #skip the row summing to one one, we don't need it
+    pbs_annot, _ = ckdout_to_sparse(ckdout=ckdout, 
+                                    shape=[iss.shape[0], gex.shape[0]], 
+                                    neighbours=neighbours
+                                   )
+    #get the annotation voting based on the graph
+    #pass none for both continuous-related inputs
+    annot_obs = get_pbs_obs(iss=iss, 
+                            gex=gex, 
+                            pbs=pbs_annot, 
+                            pbs_means=None, 
+                            obs_to_take=annot_key, 
+                            cont_obs_to_take=None, 
+                            obsm_fraction=obsm_fraction
+                           )
+    #split up the output if we're stashing the fraction
+    if obsm_fraction:
+        annot_obsm = annot_obs[1]
+        annot_obs = annot_obs[0]
+    #SECOND PASS - get neighbours only from a cell's annotation
+    #prepare a variable where the identified KNN indices will go
+    inds = np.zeros((iss.shape[0], neighbours))
+    #plus indices for all the cells in the GEX
+    gex_all_inds = np.arange(gex.shape[0])
+    for celltype in np.unique(annot_obs[annot_key]):
+        #get masks for where this is the annotation in ISS
+        iss_mask = (annot_obs[annot_key].values == celltype)
+        #and where this is the annotation in GEX
+        gex_mask = (gex.obs[annot_key].values == celltype)
+        #get indices of the GEX cells that will be used
+        gex_inds = gex_all_inds[gex_mask]
+        #get the KNN for the subset objects
+        ckdout = get_knn_indices(issX=iss.X[iss_mask,:],
+                                 gexX=gex.X[gex_mask,:],
+                                 computation=computation,
+                                 neighbours=neighbours
+                                )
+        #the indices in ckdout are relative to the subset
+        #translate them back to original coordinates
+        #and stash this in our master KNN index list
+        inds[iss_mask,:] = gex_inds[ckdout[1]]
+    #at this stage we can resume standard operation
+    #turn KNN output into a scanpy-like graph
+    #yields a version with both ones as data and ones as row sums
+    #the latter is useful for matrix operation computation of means
+    #the function only cares about the second element of ckdout
+    #we just created it manually, place it into the second slot of a list
+    pbs, pbs_means = ckdout_to_sparse(ckdout=[None, inds], 
+                                      shape=[iss.shape[0], gex.shape[0]], 
+                                      neighbours=neighbours
+                                     )
+    #get the annotations of the specified obs columns in the KNN
+    pbs_obs = get_pbs_obs(iss=iss, 
+                          gex=gex, 
+                          pbs=pbs, 
+                          pbs_means=pbs_means, 
+                          obs_to_take=obs_to_take, 
+                          cont_obs_to_take=cont_obs_to_take, 
+                          obsm_fraction=obsm_fraction
+                         )
+    #if fractions are to be stored, this has two elements
+    if obsm_fraction:
+        pbs_obsm = pbs_obs[1]
+        pbs_obs = pbs_obs[0]
+    #get the expression matrix
+    X = get_pbs_X(gex_only=gex_only, 
+                  pbs_means=pbs_means, 
+                  round_counts=round_counts, 
+                  chunk_size=chunk_size
+                 )
+    #stash the annotation calls from earlier
+    pbs_obs[annot_key] = annot_obs[annot_key]
+    pbs_obs[annot_key+"_fraction"] = annot_obs[annot_key+"_fraction"]
+    #now we can build the object easily
+    out = anndata.AnnData(X, var=gex_only.var, obs=pbs_obs)
+    #shove in the fractions from earlier if we need to
+    if obsm_fraction:
+        #we've got the annotation fraction
+        out.obsm[annot_key+"_fraction"] = annot_obsm[annot_key]
+        for anno_col in pbs_obsm:
+            out.obsm[anno_col+"_fraction"] = pbs_obsm[anno_col]
+    #shove in the pbs (KNN) if we need to
+    #also stash gex obs names as there might have been filtering
+    if obsm_pbs:
+        #there's also an annotation pbs
+        out.obsm['pbs_annot'] = pbs_annot
+        out.obsm['pbs'] = pbs
+        out.uns['pbs_gex_obs_names'] = np.array(gex.obs_names)
+    return out
