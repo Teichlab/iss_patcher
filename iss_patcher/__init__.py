@@ -94,6 +94,7 @@ def ckdout_to_sparse(ckdout, shape,
 def get_pbs_obs(iss, gex, pbs, pbs_means, 
                 obs_to_take=None, 
                 cont_obs_to_take=None, 
+                nanmean=False, 
                 obsm_fraction=False
                ):
     #start the obs pool with what already resides in the ISS object
@@ -134,8 +135,34 @@ def get_pbs_obs(iss, gex, pbs, pbs_means,
             index=iss.obs_names,
             columns=cont_obs_to_take
         )
+        #compute a nanmean if instructed to
+        if nanmean:
+            #create a helper variable with 1 if non-nan value and 0 if nan
+            non_nan_mask = gex.obs[cont_obs_to_take].values.copy()
+            non_nan_mask[~np.isnan(non_nan_mask)] = 1
+            non_nan_mask = np.nan_to_num(non_nan_mask)
+            #now we can get the total non-nan counts for each cell and cont_obs
+            #and do 1/them to get the weights for a non-nan mean
+            #as we'll only be averaging the non-nan elements by masking nan with 0
+            non_nan_weights = 1/pbs.dot(non_nan_mask)
+            #for instances where there are zero counts this is inf
+            #we don't want inf, we want nan
+            non_nan_weights[non_nan_weights == np.inf] = np.nan
+            #we can now get sums of the non-nan values for the cont_obs
+            #by filling in nans with zeroes prior to the operation
+            cont_obs_nanmean = pbs.dot(gex.obs[cont_obs_to_take].fillna(0).values)
+            #and now we can multiply them by the weights to get the means
+            cont_obs_nanmean = cont_obs_nanmean * non_nan_weights
+            cont_obs_nanmean = pd.DataFrame(
+                cont_obs_nanmean,
+                index=iss.obs_names,
+                columns=[i+"_nanmean" for i in cont_obs_to_take]
+            )
         for col in cont_obs_to_take:
             pbs_obs[col] = cont_obs[col]
+        if nanmean:
+            for col in cont_obs_nanmean:
+                pbs_obs[col] = cont_obs_nanmean[col]
     if obsm_fraction:
         return pbs_obs, pbs_obsm
     else:
@@ -172,6 +199,7 @@ def get_pbs_X(gex_only, pbs_means,
 def knn(iss, gex, gex_only, 
         obs_to_take=None, 
         cont_obs_to_take=None, 
+        nanmean=False, 
         round_counts=True, 
         chunk_size=100000, 
         computation="annoy", 
@@ -199,6 +227,7 @@ def knn(iss, gex, gex_only,
                           pbs_means=pbs_means, 
                           obs_to_take=obs_to_take, 
                           cont_obs_to_take=cont_obs_to_take, 
+                          nanmean=nanmean, 
                           obsm_fraction=obsm_fraction
                          )
     #if fractions are to be stored, this has two elements
@@ -228,6 +257,7 @@ def patch(iss, gex,
           min_genes=3, 
           obs_to_take=None, 
           cont_obs_to_take=None, 
+          nanmean=False, 
           round_counts=True, 
           chunk_size=100000, 
           computation="annoy", 
@@ -259,6 +289,9 @@ def patch(iss, gex,
         If provided, will report the average of the values of the 
         specified ``gex.obs`` column(s) for the neighbours of each 
         ``iss`` cell. Continuous metadata only.
+    nanmean : ``bool``, optional (default: ``False``)
+        If ``True``, will also compute an equivalent of ``np.nanmean()`` 
+        for each ``cont_obs_to_take``.
     round_counts : ``bool``, optional (default: ``True``)
         If ``True``, will round the computed counts to the nearest 
         integer.
@@ -296,6 +329,7 @@ def patch(iss, gex,
                gex_only=gex_only, 
                obs_to_take=obs_to_take, 
                cont_obs_to_take=cont_obs_to_take, 
+               nanmean=nanmean, 
                round_counts=round_counts, 
                chunk_size=chunk_size, 
                computation=computation, 
@@ -308,6 +342,7 @@ def patch_twostep(iss, gex, annot_key,
                   min_genes=3, 
                   obs_to_take=None, 
                   cont_obs_to_take=None, 
+                  nanmean=False, 
                   round_counts=True, 
                   chunk_size=100000, 
                   computation="annoy", 
@@ -370,6 +405,7 @@ def patch_twostep(iss, gex, annot_key,
                             pbs_means=None, 
                             obs_to_take=annot_key, 
                             cont_obs_to_take=None, 
+                            nanmean=False, 
                             obsm_fraction=obsm_fraction
                            )
     #split up the output if we're stashing the fraction
@@ -415,6 +451,7 @@ def patch_twostep(iss, gex, annot_key,
                           pbs_means=pbs_means, 
                           obs_to_take=obs_to_take, 
                           cont_obs_to_take=cont_obs_to_take, 
+                          nanmean=nanmean, 
                           obsm_fraction=obsm_fraction
                          )
     #if fractions are to be stored, this has two elements
