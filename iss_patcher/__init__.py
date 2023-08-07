@@ -142,9 +142,10 @@ def get_pbs_obs(iss, gex, pbs, pbs_means,
             non_nan_mask[~np.isnan(non_nan_mask)] = 1
             non_nan_mask = np.nan_to_num(non_nan_mask)
             #now we can get the total non-nan counts for each cell and cont_obs
+            non_nan_counts = pbs.dot(non_nan_mask)
             #and do 1/them to get the weights for a non-nan mean
             #as we'll only be averaging the non-nan elements by masking nan with 0
-            non_nan_weights = 1/pbs.dot(non_nan_mask)
+            non_nan_weights = 1/non_nan_counts
             #for instances where there are zero counts this is inf
             #we don't want inf, we want nan
             non_nan_weights[non_nan_weights == np.inf] = np.nan
@@ -153,10 +154,11 @@ def get_pbs_obs(iss, gex, pbs, pbs_means,
             cont_obs_nanmean = pbs.dot(gex.obs[cont_obs_to_take].fillna(0).values)
             #and now we can multiply them by the weights to get the means
             cont_obs_nanmean = cont_obs_nanmean * non_nan_weights
+            #store both the means and the non-nan count total
             cont_obs_nanmean = pd.DataFrame(
-                cont_obs_nanmean,
+                np.hstack((cont_obs_nanmean, non_nan_counts)),
                 index=iss.obs_names,
-                columns=[i+"_nanmean" for i in cont_obs_to_take]
+                columns=[i+"_nanmean" for i in cont_obs_to_take] + [i+"_non_nan_count" for i in cont_obs_to_take]
             )
         for col in cont_obs_to_take:
             pbs_obs[col] = cont_obs[col]
