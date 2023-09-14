@@ -13,6 +13,10 @@ import numpy as np
 def prepare_scaled(adata, 
                    min_genes=3
                   ):
+    """
+    Log-normalise and z-score raw-count ``adata``, filtering to cells 
+    with ``min_genes`` genes.
+    """
     sc.pp.filter_cells(adata, min_genes=min_genes)
     #normalise to median
     sc.pp.normalize_total(adata)
@@ -22,6 +26,16 @@ def prepare_scaled(adata,
 def split_and_normalise_objects(iss, gex, 
                                 min_genes=3
                                ):
+    """
+    Identify shared features between ``iss`` and ``gex``, split GEX 
+    into two sub-objects - ``gex`` with features shared with ``iss`` 
+    and ``gex_only`` that carries GEX-unique features. Filter ``iss`` 
+    and ``gex`` to cells with at least ``min_genes`` genes, 
+    log-normalise and z-score them, subset ``gex_only`` to match the 
+    ``gex`` cell space, return all three objects.
+    
+    All arguments as in ``ip.patch()``.
+    """
     #copy the objects to avoid modifying the originals
     iss = iss.copy()
     gex = gex.copy()
@@ -41,6 +55,22 @@ def get_knn_indices(issX, gexX,
                     computation="annoy", 
                     neighbours=15
                    ):
+    """
+    Identify the neighbours of each ``issX`` observation in ``gexX``. 
+    Return a ``scipy.spatial.cKDTree()``-style formatted output with 
+    KNN indices for each low dimensional cell in the second element 
+    of the tuple.
+    
+    All undescribed arguments as in ``ip.patch()``.
+    
+    Input
+    -----
+    issX : ``np.array``
+        Low dimensionality processed expression data.
+    gexX : ``np.array``
+        High dimensionality processed expression data, with features 
+        subset to match the low dimensionality data.
+    """
     if computation == "annoy":
         #build the GEX index
         ckd = annoy.AnnoyIndex(gexX.shape[1], metric="euclidean")
@@ -75,6 +105,23 @@ def get_knn_indices(issX, gexX,
 def ckdout_to_sparse(ckdout, shape, 
                      neighbours=15
                     ):
+    """
+    Convert an array of KNN indices into a sparse matrix form. Return 
+    the binary sparse matrix along with a copy where rows add up to 1 
+    for easy mean computation.
+    
+    All undescribed arguments as in ``ip.patch()``.
+    
+    Input
+    -----
+    ckdout : tuple/list of ``np.array``
+        Needs to have the KNN indices of low dimensionality cells in the 
+        high dimensionality space as the second element (matching 
+        ``scipy.sparse.cKDTree()`` output formatting).
+    shape : list of ``int``
+        The shape of the sparse matrix, low dimensionality cell count as 
+        rows, high dimensionality cell count as columns.
+    """
     #the indices need to be flattened, the default row-major style works
     indices = ckdout[1].flatten()
     #the indptr is once every neighbours, but needs an extra entry at the end
@@ -97,6 +144,31 @@ def get_pbs_obs(iss, gex, pbs, pbs_means,
                 nanmean=False, 
                 obsm_fraction=False
                ):
+    """
+    Use the identified KNN to transfer ``.obs`` entries from the high 
+    dimensionality object to the low dimensionality object. Returns a 
+    majority vote/mean ``.obs`` data frame, and optionally a dictionary 
+    of data frames capturing the complete fraction distribution of each 
+    ``obs_to_take`` for each low dimensionality cell (for subsequent 
+    ``.obsm`` insertion into the final object).
+    
+    All undescribed arguments as in ``ip.patch()``.
+    
+    Input
+    -----
+    iss : ``AnnData``
+        Low dimensionality data object with processed expression data in 
+        ``.X``.
+    gex : ``AnnData``
+        High dimensionality data object with processed expression data in 
+        ``.X``, subset to low dimensionality data object features.
+    pbs : ``scipy.sparse.csr_matrix``
+        Binary KNN graph, with low dimensionality cells as rows and 
+        high dimensionality cells as columns.
+    pbs_means : ``scipy_sparse.csr.matrix``
+        KNN graph, with low dimensionality cells as rows and high 
+        dimensionality cells as columns, with row values summing up to 1.
+    """
     #start the obs pool with what already resides in the ISS object
     pbs_obs = iss.obs.copy()
     #possibly store all computed fractions too, will live in obsm later
@@ -174,6 +246,22 @@ def get_pbs_X(gex_only, pbs_means,
               round_counts=True, 
               chunk_size=100000
              ):
+    """
+    Compute the expression of missing features in the low dimensionality 
+    data as the mean of matching neighbours from the high dimensionality 
+    data.
+    
+    All undescribed arguments as in ``ip.patch()``.
+    
+    Input
+    -----
+    gex_only : ``AnnData``
+        High dimensionality data object with raw counts in ``.X``, subset to 
+        features absent from the low dimensionality object.
+    pbs_means : ``scipy_sparse.csr.matrix``
+        KNN graph, with low dimensionality cells as rows and high 
+        dimensionality cells as columns, with row values summing up to 1.
+    """
     #if we're rounding the data, compute it in chunks to reduce RAM footprint
     if round_counts:
         #we'll be vstacking to this shortly
@@ -209,6 +297,29 @@ def knn(iss, gex, gex_only,
         obsm_fraction=False, 
         obsm_pbs=False
        ):
+    """
+    Identify the nearest neighbours of low dimensionality observations 
+    in related higher dimensionality data. Approximate features absent  
+    from the low dimensionality data as high dimensionality neighbour 
+    means.
+    
+    ``ip.patch()`` without the normalisation, for when custom data 
+    preparation is desired.
+    
+    All undescribed arguments as in ``ip.patch()``.
+    
+    Input
+    -----
+    iss : ``AnnData``
+        Low dimensionality data object with processed expression data in 
+        ``.X``.
+    gex : ``AnnData``
+        High dimensionality data object with processed expression data in 
+        ``.X``, subset to low dimensionality data object features.
+    gex_only : ``AnnData``
+        High dimensionality data object with raw counts in ``.X``, subset to 
+        features absent from the low dimensionality object.
+    """
     #identify the KNN, preparing a (distances, indices) tuple
     ckdout = get_knn_indices(issX=iss.X, 
                              gexX=gex.X, 
