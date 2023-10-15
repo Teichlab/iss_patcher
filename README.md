@@ -4,16 +4,56 @@
 
 While the function was initially written for processing ISS and GEX data, it can in principle be used for any sort of low-dimensional data featuring a subset of features from high-dimensional data.
 
+## System requirements
+
+### Hardware requirements
+
+`iss_patcher` can run on a standard computer with enough RAM to hold the used datasets in memory.
+
+### Software requirements
+
+**OS requirements**
+
+The package has been tested on:
+
+- macOS Monterey (12.6.7)
+- 
+
+**Python requirements**
+
+A python version `>=3.7` and `<3.12` is required for all dependencies to work. 
+Various python libraries are used, listed in `pyproject.toml`, including the python scientific stack with `scipy>=1.6.0`, `annoy` and `scanpy`.
+`iss_patcher` and all dependencies can be installed via `pip` (see below).
+
 ## Installation
+
+*Optional: create and activate a new conda environment (with python<3.12):*
+```bash
+mamba create -n iss_patcher "python<3.12"
+mamba activate iss_patcher
+```
+
+### Install with pip
+
+**from PyPI**
+
+*will be added*
+
+**from github**
 
 ```bash
 pip install git+https://github.com/Teichlab/iss_patcher.git
 ```
 
+*(installation time: around 2 min)*
+
 ## Usage and Documentation
 
 Please refer to the [demo notebook](notebooks/demo.ipynb). There's a function docstring in the source code, which will be rendered on ReadTheDocs once the package goes live.
 
+(*demo running time: around 10 min*)
+
 ## Citation
 
 `iss_patcher` is part of the forthcoming manuscript "A multiomic atlas of human early skeletal development" by To, Fei, Pett et al. Stay tuned for details!
+
