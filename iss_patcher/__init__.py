@@ -354,7 +354,7 @@ def knn(iss, gex, gex_only,
                   chunk_size=chunk_size
                  )
     #now we can build the object easily
-    out = anndata.AnnData(X, var=gex_only.var, obs=pbs_obs)
+    out = anndata.AnnData(X, var=gex_only.var, obs=pbs_obs, obsm=iss.obsm)
     #shove in the fractions from earlier if we need to
     if obsm_fraction:
         for anno_col in pbs_obsm:
@@ -581,7 +581,7 @@ def patch_twostep(iss, gex, annot_key,
     pbs_obs[annot_key] = annot_obs[annot_key]
     pbs_obs[annot_key+"_fraction"] = annot_obs[annot_key+"_fraction"]
     #now we can build the object easily
-    out = anndata.AnnData(X, var=gex_only.var, obs=pbs_obs)
+    out = anndata.AnnData(X, var=gex_only.var, obs=pbs_obs, obsm=iss.obsm)
     #shove in the fractions from earlier if we need to
     if obsm_fraction:
         #we've got the annotation fraction
