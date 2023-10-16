@@ -14,3 +14,5 @@ Function docstrings
    :toctree:
    
    iss_patcher.patch
+   iss_patcher.patch_twostep
+   iss_patcher.knn
