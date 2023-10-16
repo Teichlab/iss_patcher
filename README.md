@@ -17,7 +17,7 @@ While the function was initially written for processing ISS and GEX data, it can
 The package has been tested on:
 
 - macOS Monterey (12.6.7)
-- 
+- Linux: Ubuntu 18.04.6 bionic
 
 **Python requirements**
 
