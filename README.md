@@ -13,3 +13,7 @@ pip install git+https://github.com/Teichlab/iss_patcher.git
 ## Usage and Documentation
 
 Please refer to the [demo notebook](notebooks/demo.ipynb). There's a function docstring in the source code, which will be rendered on ReadTheDocs once the package goes live.
+
+## Citation
+
+`iss_patcher` is part of the forthcoming manuscript "A multiomic atlas of human early skeletal development" by To, Fei, Pett et al. Stay tuned for details!
