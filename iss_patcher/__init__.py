@@ -459,14 +459,15 @@ def patch_twostep(iss, gex, annot_key,
                   obsm_pbs=False
                  ):
     """
-    A two-step version of the procedure, identifying each low dimensional cell's 
-    KNN in the shared GEX feature space in the first go, and then 
-    finding each ISS cell's KNN only among the high dimensional cells matching in 
-    annotation. Prior to execution, high dimensional cells annotated with 
-    categories with fewer than ``neighbours`` total representatives are 
-    removed. ``annot_key``-derived entries in the output object are 
-    based on the first-pass KNN on the full space, all other transferred 
-    ``gex.obs`` are based on the second pass subset KNNs.
+    A two-step version of the procedure, identifying each low dimensional 
+    cell's KNN in the shared high dimensional feature space in the first 
+    go, and then finding each low dimensional cell's KNN only among the 
+    high dimensional cells matching in annotation. Prior to execution, 
+    high dimensional cells annotated with categories with fewer than 
+    ``neighbours`` total representatives are removed. ``annot_key``-derived 
+    entries in the output object are based on the first-pass KNN on the 
+    full space, all other transferred ``gex.obs`` are based on the second 
+    pass subset KNNs.
     
     All undescribed arguments as in ``ip.patch()``.
     
