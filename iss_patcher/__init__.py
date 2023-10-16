@@ -298,11 +298,6 @@ def knn(iss, gex, gex_only,
         obsm_pbs=False
        ):
     """
-    Identify the nearest neighbours of low dimensionality observations 
-    in related higher dimensionality data. Approximate features absent  
-    from the low dimensionality data as high dimensionality neighbour 
-    means.
-    
     ``ip.patch()`` without the normalisation, for when custom data 
     preparation is desired.
     
@@ -380,7 +375,7 @@ def patch(iss, gex,
          ):
     """
     Identify the nearest neighbours of low dimensionality observations 
-    in related higher dimensionality data. Approximate features absent  
+    in related higher dimensionality data, approximate features absent  
     from the low dimensionality data as high dimensionality neighbour 
     means. The data is log-normalised and z-scored prior to KNN 
     inference.
@@ -464,10 +459,10 @@ def patch_twostep(iss, gex, annot_key,
                   obsm_pbs=False
                  ):
     """
-    A two-step version of the procedure, identifying each ``iss`` cell's 
+    A two-step version of the procedure, identifying each low dimensional cell's 
     KNN in the shared GEX feature space in the first go, and then 
-    finding each ISS cell's KNN only among the ``gex`` cells matching in 
-    annotation. Prior to execution, ``gex`` cells annotated with 
+    finding each ISS cell's KNN only among the high dimensional cells matching in 
+    annotation. Prior to execution, high dimensional cells annotated with 
     categories with fewer than ``neighbours`` total representatives are 
     removed. ``annot_key``-derived entries in the output object are 
     based on the first-pass KNN on the full space, all other transferred 
