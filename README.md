@@ -49,7 +49,7 @@ pip install git+https://github.com/Teichlab/iss_patcher.git
 
 ## Usage and Documentation
 
-Please refer to the [demo notebook](notebooks/demo.ipynb). There's a function docstring in the source code, which will be rendered on ReadTheDocs once the package goes live.
+Please refer to the [demo notebook](notebooks/demo.ipynb). Docstrings detailing the arguments of the various functions can be accessed at [ReadTheDocs](https://iss-patcher.readthedocs.io/en/latest/).
 
 (*demo running time: around 10 min*)
 
