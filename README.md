@@ -6,6 +6,9 @@ While the function was initially written for processing ISS and GEX data, it can
 
 ## System requirements
 
+<details>
+<summary><b>show requirements</b></summary>
+
 ### Hardware requirements
 
 `iss_patcher` can run on a standard computer with enough RAM to hold the used datasets in memory.
@@ -25,6 +28,8 @@ A python version `>=3.7` and `<3.12` is required for all dependencies to work.
 Various python libraries are used, listed in `pyproject.toml`, including the python scientific stack with `scipy>=1.6.0`, `annoy` and `scanpy`.
 `iss_patcher` and all dependencies can be installed via `pip` (see below).
 
+</details>
+
 ## Installation
 
 *Optional: create and activate a new conda environment (with python<3.12):*
@@ -32,12 +37,6 @@ Various python libraries are used, listed in `pyproject.toml`, including the pyt
 mamba create -n iss_patcher "python<3.12"
 mamba activate iss_patcher
 ```
-
-### Install with pip
-
-**from PyPI**
-
-*will be added*
 
 **from github**
 
