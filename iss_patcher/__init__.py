@@ -454,6 +454,7 @@ def patch_twostep(iss, gex, annot_key,
                   round_counts=True, 
                   chunk_size=100000, 
                   computation="annoy", 
+                  neighbours_annot=15, 
                   neighbours=15, 
                   obsm_fraction=False, 
                   obsm_pbs=False
@@ -475,6 +476,12 @@ def patch_twostep(iss, gex, annot_key,
     -----
     annot_key : ``str``
         ``gex.obs`` key to use as the annotation.
+    neighbours_annot : ``int``, optional (default: 15)
+        How many neighbours in ``gex`` to identify for each ``iss`` cell 
+        when performing the first annotation step.
+    neighbours : ``int``, optional (default: 15)
+        How many neighbours in ``gex`` to identify for each ``iss`` cell 
+        when performing the second within-cell-type step.
     obsm_fraction : ``bool``, optional (default: ``False``)
         If ``True``, will additionally store the ``annot_key`` 
         cell fractions from the first pass KNN.
@@ -498,13 +505,13 @@ def patch_twostep(iss, gex, annot_key,
     ckdout = get_knn_indices(issX=iss.X, 
                              gexX=gex.X, 
                              computation=computation, 
-                             neighbours=neighbours
+                             neighbours=neighbours_annot
                             )
     #turn KNN output into a scanpy-like graph
     #skip the row summing to one one, we don't need it
     pbs_annot, _ = ckdout_to_sparse(ckdout=ckdout, 
                                     shape=[iss.shape[0], gex.shape[0]], 
-                                    neighbours=neighbours
+                                    neighbours=neighbours_annot
                                    )
     #get the annotation voting based on the graph
     #pass none for both continuous-related inputs
