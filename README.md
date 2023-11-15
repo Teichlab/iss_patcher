@@ -50,7 +50,7 @@ pip install git+https://github.com/Teichlab/iss_patcher.git
 
 Please refer to the [demo notebook](notebooks/demo.ipynb). Docstrings detailing the arguments of the various functions can be accessed at [ReadTheDocs](https://iss-patcher.readthedocs.io/en/latest/).
 
-(*demo running time: around 10 min*)
+*(demo running time: around 10 min)*
 
 ## Citation
 
